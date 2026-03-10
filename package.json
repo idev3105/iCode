@@ -2,6 +2,7 @@
   "name": "icode",
   "displayName": "iCode",
   "description": "Autonomous AI coding IDE orchestrated by LLMs",
+  "publisher": "icode-dev",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.110.0"
@@ -101,7 +102,8 @@
     "pretest": "pnpm run compile-tests && pnpm run compile && pnpm run lint",
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "vsix": "vsce package"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
@@ -110,6 +112,7 @@
     "@types/vscode": "^1.110.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.7.1",
     "autoprefixer": "10",
     "esbuild": "^0.27.3",
     "esbuild-postcss": "^0.0.4",
