@@ -7,7 +7,7 @@ import { DiffManager } from './diff/DiffManager';
 export function activate(context: vscode.ExtensionContext) {
 	const agentManager = new AgentManager();
 	const diffManager = new DiffManager();
-	const panelProvider = new TaskPanelProvider(context.extensionUri, agentManager);
+	const panelProvider = new TaskPanelProvider(context, agentManager);
 
 	// Register the sidebar Task Panel
 	context.subscriptions.push(
@@ -20,8 +20,6 @@ export function activate(context: vscode.ExtensionContext) {
 			const agentItems: { label: string; agentType: AgentType }[] = [
 				{ label: '$(hubot) Claude', agentType: 'claude' },
 				{ label: '$(hubot) Gemini', agentType: 'gemini' },
-				{ label: '$(hubot) Goose', agentType: 'goose' },
-				{ label: '$(terminal) Shell', agentType: 'shell' },
 			];
 
 			const picked = await vscode.window.showQuickPick(agentItems, {
@@ -69,6 +67,12 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 			await diffManager.snapshotFile(activeEditor.document.uri);
 			vscode.window.showInformationMessage(`iCode: Snapshot saved for ${activeEditor.document.fileName}`);
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('icode.openSettings', () => {
+			panelProvider.openSettings();
 		})
 	);
 

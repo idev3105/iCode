@@ -1,4 +1,4 @@
-export type AgentType = 'claude' | 'gemini' | 'goose' | 'shell';
+export type AgentType = 'claude' | 'gemini';
 
 export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed';
 

@@ -19,7 +19,7 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
 	private view?: vscode.WebviewView;
 
 	constructor(
-		private readonly extensionUri: vscode.Uri,
+		private readonly context: vscode.ExtensionContext,
 		private readonly agentManager: AgentManager
 	) {
 		agentManager.onTaskUpdated(() => this.refresh());
@@ -34,10 +34,10 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
 
 		webviewView.webview.options = {
 			enableScripts: true,
-			localResourceRoots: [this.extensionUri],
+			localResourceRoots: [this.context.extensionUri],
 		};
 
-		webviewView.webview.html = getWebviewContent(webviewView.webview, this.extensionUri);
+		webviewView.webview.html = getWebviewContent(webviewView.webview, this.context);
 
 		webviewView.webview.onDidReceiveMessage((msg: WebviewMessage) => {
 			switch (msg.type) {
@@ -88,6 +88,12 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
 				type: 'tasksUpdated',
 				tasks: this.agentManager.getTasks(),
 			});
+		}
+	}
+
+	openSettings(): void {
+		if (this.view) {
+			this.view.webview.postMessage({ type: 'navigate', screen: 'settings' });
 		}
 	}
 }

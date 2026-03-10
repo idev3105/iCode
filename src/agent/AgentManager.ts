@@ -1,11 +1,9 @@
 import * as vscode from 'vscode';
-import * as os from 'os';
 import { Task, AgentType } from './types';
 
 function getAgentShell(agentType: AgentType): { shellPath: string; shellArgs: string[] } {
 	const config = vscode.workspace.getConfiguration('icode');
 	const yolo = config.get<boolean>('yolo', false);
-	const isWin = os.platform() === 'win32';
 	switch (agentType) {
 		case 'claude':
 			return {
@@ -17,15 +15,6 @@ function getAgentShell(agentType: AgentType): { shellPath: string; shellArgs: st
 				shellPath: config.get<string>('agents.gemini.command', 'gemini'),
 				shellArgs: yolo ? ['--yolo'] : [],
 			};
-		case 'goose':
-			return {
-				shellPath: config.get<string>('agents.goose.command', 'goose'),
-				shellArgs: ['session'],
-			};
-		case 'shell':
-			return isWin
-				? { shellPath: 'cmd.exe', shellArgs: [] }
-				: { shellPath: process.env.SHELL ?? 'bash', shellArgs: [] };
 	}
 }
 
@@ -56,7 +45,9 @@ export class AgentManager {
 		terminal.show();
 
 		// Send the initial prompt once the shell/agent has started
-		terminal.sendText(task.prompt);
+		if (task.prompt) {
+			terminal.sendText(task.prompt);
+		}
 
 		// Mark complete when terminal closes
 		const disposable = vscode.window.onDidCloseTerminal(closed => {
