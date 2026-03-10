@@ -11,3 +11,14 @@ export interface Task {
 	output: string;
 	sessionId?: string;
 }
+
+export type SessionStatus = 'waiting' | 'init' | 'working' | 'stop';
+
+export interface Session {
+	id: string;
+	agentType: AgentType;
+	prompt: string;
+	status: SessionStatus;
+	createdAt: number;
+	sessionId?: string;
+}

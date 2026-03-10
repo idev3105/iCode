@@ -1,8 +1,10 @@
 import * as vscode from 'vscode';
+import { execSync } from 'child_process';
 import { v7 as uuidv7 } from 'uuid';
-import { Task, AgentType } from './types';
+import { Task, AgentType, Session, SessionStatus } from './types';
 import { ensureHooks } from '../server/HookInstaller';
 import { ensureGeminiHooks } from '../server/GeminiHookInstaller';
+import { SessionStore } from './SessionStore';
 
 const GEMINI_SESSION_START_TIMEOUT_MS = 15_000;
 
@@ -34,6 +36,7 @@ export class AgentManager {
 	private terminals: Map<string, vscode.Terminal> = new Map();
 	private sessionTerminals: Map<string, vscode.Terminal> = new Map();
 	private hookPort: number | undefined;
+	private sessionStore: SessionStore;
 
 	// Queue ensures only one Gemini agent initializes at a time (waits for SessionStart)
 	private geminiInitQueue: Promise<void> = Promise.resolve();
@@ -45,6 +48,28 @@ export class AgentManager {
 
 	constructor(hookPort?: number) {
 		this.hookPort = hookPort;
+		this.sessionStore = new SessionStore();
+	}
+
+	private taskStatusToSessionStatus(status: Task['status']): SessionStatus {
+		switch (status) {
+			case 'queued': return 'waiting';
+			case 'running': return 'working';
+			case 'completed':
+			case 'failed': return 'stop';
+		}
+	}
+
+	private persistSession(task: Task, statusOverride?: SessionStatus): void {
+		const session: Session = {
+			id: task.id,
+			agentType: task.agentType,
+			prompt: task.prompt,
+			status: statusOverride ?? this.taskStatusToSessionStatus(task.status),
+			createdAt: task.createdAt,
+			sessionId: task.sessionId,
+		};
+		this.sessionStore.set(session);
 	}
 
 	/** Called by HookServer for every incoming hook event. */
@@ -91,6 +116,7 @@ export class AgentManager {
 
 		task.status = 'running';
 		this.tasks.set(task.id, task);
+		this.persistSession(task, 'init');
 		this._onTaskUpdated.fire({ ...task });
 
 		const { shellPath, shellArgs } = getAgentShell(task.agentType);
@@ -100,7 +126,6 @@ export class AgentManager {
 		task.sessionId = sessionId;
 		shellArgs.push('--session-id', sessionId);
 		this.tasks.set(task.id, task);
-		this._onTaskUpdated.fire({ ...task });
 
 		const terminal = vscode.window.createTerminal({
 			name: `iCode [${task.agentType}]`,
@@ -118,10 +143,14 @@ export class AgentManager {
 			terminal.sendText(task.prompt);
 		}
 
+		this.persistSession(task); // working
+		this._onTaskUpdated.fire({ ...task });
+
 		const disposable = vscode.window.onDidCloseTerminal(closed => {
 			if (closed === terminal) {
 				task.status = 'completed';
 				this.tasks.set(task.id, task);
+				this.persistSession(task); // stop
 				this._onTaskUpdated.fire({ ...task });
 				this.terminals.delete(task.id);
 				this.sessionTerminals.delete(sessionId);
@@ -138,6 +167,7 @@ export class AgentManager {
 
 		task.status = 'running';
 		this.tasks.set(task.id, task);
+		this.persistSession(task, 'init');
 		this._onTaskUpdated.fire({ ...task });
 
 		const { shellPath, shellArgs } = getAgentShell('gemini');
@@ -169,12 +199,14 @@ export class AgentManager {
 		task.sessionId = sessionId;
 		this.tasks.set(task.id, task);
 		this.sessionTerminals.set(sessionId, terminal);
+		this.persistSession(task); // working
 		this._onTaskUpdated.fire({ ...task });
 
 		const disposable = vscode.window.onDidCloseTerminal(closed => {
 			if (closed === terminal) {
 				task.status = 'completed';
 				this.tasks.set(task.id, task);
+				this.persistSession(task); // stop
 				this._onTaskUpdated.fire({ ...task });
 				this.terminals.delete(task.id);
 				this.sessionTerminals.delete(sessionId);
@@ -186,6 +218,7 @@ export class AgentManager {
 	queueTask(task: Task): void {
 		task.status = 'queued';
 		this.tasks.set(task.id, task);
+		this.persistSession(task); // waiting
 		this._onTaskUpdated.fire({ ...task });
 		void this.runTask(task);
 	}
@@ -202,6 +235,10 @@ export class AgentManager {
 		return this.tasks.get(id);
 	}
 
+	getSessions(): Session[] {
+		return this.sessionStore.getAll().sort((a, b) => b.createdAt - a.createdAt);
+	}
+
 	focusTerminal(taskId: string): void {
 		this.terminals.get(taskId)?.show();
 	}
@@ -209,6 +246,145 @@ export class AgentManager {
 	getTaskIdByTerminal(terminal: vscode.Terminal): string | undefined {
 		for (const [taskId, t] of this.terminals) {
 			if (t === terminal) { return taskId; }
+		}
+		return undefined;
+	}
+
+	/** Resume a stopped session by its task ID. */
+	async resumeSession(taskId: string): Promise<void> {
+		const session = this.sessionStore.get(taskId);
+		if (!session || session.status !== 'stop') { return; }
+
+		const task: Task = {
+			id: taskId,
+			agentType: session.agentType,
+			prompt: '',
+			status: 'running',
+			createdAt: Date.now(),
+			output: '',
+			sessionId: session.sessionId,
+		};
+
+		this.tasks.set(task.id, task);
+		this.persistSession(task, 'init');
+		this._onTaskUpdated.fire({ ...task });
+
+		const config = vscode.workspace.getConfiguration('icode');
+		const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+		if (session.agentType === 'claude') {
+			if (this.hookPort !== undefined) {
+				await ensureHooks(this.hookPort);
+			}
+			const shellPath = config.get<string>('agents.claude.command', 'claude');
+			const shellArgs: string[] = [];
+			if (config.get<boolean>('yolo', false)) {
+				shellArgs.push('--dangerously-skip-permissions');
+			}
+			shellArgs.push('--resume', session.sessionId!);
+
+			const terminal = vscode.window.createTerminal({
+				name: `iCode [claude] (resumed)`,
+				shellPath,
+				shellArgs,
+				cwd,
+				location: vscode.TerminalLocation.Editor,
+			});
+
+			this.terminals.set(task.id, terminal);
+			if (session.sessionId) {
+				this.sessionTerminals.set(session.sessionId, terminal);
+			}
+			terminal.show();
+
+			this.persistSession(task); // working
+			this._onTaskUpdated.fire({ ...task });
+
+			const disposable = vscode.window.onDidCloseTerminal(closed => {
+				if (closed === terminal) {
+					task.status = 'completed';
+					this.tasks.set(task.id, task);
+					this.persistSession(task); // stop
+					this._onTaskUpdated.fire({ ...task });
+					this.terminals.delete(task.id);
+					if (session.sessionId) {
+						this.sessionTerminals.delete(session.sessionId);
+					}
+					disposable.dispose();
+				}
+			});
+		} else {
+			// Gemini: find session index from --list-sessions output
+			if (this.hookPort !== undefined) {
+				await ensureGeminiHooks(this.hookPort);
+			}
+			const geminiCmd = config.get<string>('agents.gemini.command', 'gemini');
+			const sessionIndex = this.findGeminiSessionIndex(geminiCmd, session.sessionId!, cwd);
+			if (sessionIndex === undefined) {
+				vscode.window.showErrorMessage(`Could not find Gemini session to resume.`);
+				task.status = 'failed';
+				this.tasks.set(task.id, task);
+				this.persistSession(task); // stop
+				this._onTaskUpdated.fire({ ...task });
+				return;
+			}
+
+			const shellArgs: string[] = [];
+			if (config.get<boolean>('yolo', false)) {
+				shellArgs.push('--yolo');
+			}
+			shellArgs.push('-r', String(sessionIndex));
+
+			const terminal = vscode.window.createTerminal({
+				name: `iCode [gemini] (resumed)`,
+				shellPath: geminiCmd,
+				shellArgs,
+				cwd,
+				location: vscode.TerminalLocation.Editor,
+			});
+
+			this.terminals.set(task.id, terminal);
+			if (session.sessionId) {
+				this.sessionTerminals.set(session.sessionId, terminal);
+			}
+			terminal.show();
+
+			this.persistSession(task); // working
+			this._onTaskUpdated.fire({ ...task });
+
+			const disposable = vscode.window.onDidCloseTerminal(closed => {
+				if (closed === terminal) {
+					task.status = 'completed';
+					this.tasks.set(task.id, task);
+					this.persistSession(task); // stop
+					this._onTaskUpdated.fire({ ...task });
+					this.terminals.delete(task.id);
+					if (session.sessionId) {
+						this.sessionTerminals.delete(session.sessionId);
+					}
+					disposable.dispose();
+				}
+			});
+		}
+	}
+
+	/** Parse `gemini --list-sessions` to find the line index for a given session ID. */
+	private findGeminiSessionIndex(geminiCmd: string, sessionId: string, cwd?: string): number | undefined {
+		try {
+			const output = execSync(`${geminiCmd} --list-sessions`, {
+				encoding: 'utf-8',
+				cwd,
+				timeout: 10_000,
+			});
+			const lines = output.split('\n');
+			for (const line of lines) {
+				if (line.includes(sessionId)) {
+					const match = line.match(/^\s*(\d+)/);
+					if (match) { return parseInt(match[1], 10); }
+				}
+			}
+		} catch {
+			// Command failed
 		}
 		return undefined;
 	}

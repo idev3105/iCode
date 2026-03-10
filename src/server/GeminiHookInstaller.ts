@@ -1,4 +1,5 @@
 import * as fs from 'fs/promises';
+import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
@@ -16,6 +17,7 @@ const HOOK_EVENTS = [
 export async function ensureGeminiHooks(port: number): Promise<void> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (!workspaceRoot) { return; }
+  if (path.resolve(workspaceRoot) === path.resolve(os.homedir())) { return; }
 
   const settingsPath = path.join(workspaceRoot, '.gemini', 'settings.json');
   const hookUrl = `http://localhost:${port}/hook`;

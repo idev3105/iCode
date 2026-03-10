@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { AgentManager } from '../agent/AgentManager';
-import { AgentType, Task } from '../agent/types';
+import { AgentType, Task, Session } from '../agent/types';
 import { getWebviewContent } from './getWebviewContent';
 
 const SETTING_KEYS = ['yolo'] as const;
@@ -10,6 +10,7 @@ type SettingKey = typeof SETTING_KEYS[number];
 type WebviewMessage =
 	| { type: 'submitTask'; agentType: AgentType; prompt: string }
 	| { type: 'focusTerminal'; taskId: string }
+	| { type: 'resumeSession'; taskId: string }
 	| { type: 'updateSetting'; key: SettingKey; value: boolean }
 	| { type: 'ready' };
 
@@ -63,6 +64,10 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
 					this.agentManager.focusTerminal(msg.taskId);
 					break;
 
+				case 'resumeSession':
+					this.agentManager.resumeSession(msg.taskId);
+					break;
+
 				case 'updateSetting':
 					vscode.workspace
 						.getConfiguration('icode')
@@ -87,6 +92,7 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
 			this.view.webview.postMessage({
 				type: 'tasksUpdated',
 				tasks: this.agentManager.getTasks(),
+				sessions: this.agentManager.getSessions(),
 			});
 		}
 	}
