@@ -2,32 +2,68 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 
-export function getWebviewContent(webview: vscode.Webview, context: vscode.ExtensionContext): string {
-	const distPath = path.join(context.extensionPath, 'dist');
-	const scriptContent = fs.readFileSync(path.join(distPath, 'webview.js'), 'utf8');
-	const styleContent = fs.readFileSync(path.join(distPath, 'webview.css'), 'utf8');
+const DEV_SERVER_URL = 'http://localhost:5173';
 
+function getCodiconStyles(context: vscode.ExtensionContext, webview: vscode.Webview): string {
 	const codiconFontUri = webview.asWebviewUri(
 		vscode.Uri.joinPath(context.extensionUri, 'node_modules', '@vscode/codicons', 'dist', 'codicon.ttf')
 	);
-
-	// Read codicon CSS and rewrite the font url to use the webview URI
 	const codiconCssPath = path.join(context.extensionPath, 'node_modules', '@vscode/codicons', 'dist', 'codicon.css');
-	const codiconCss = fs.readFileSync(codiconCssPath, 'utf8')
+	return fs.readFileSync(codiconCssPath, 'utf8')
 		.replace(/url\([^)]+\)/g, `url('${codiconFontUri}')`);
+}
+
+// for dev mode help hot reload UI changes, BUT NOT WORK :))
+function getDevContent(webview: vscode.Webview, context: vscode.ExtensionContext): string {
+	const codiconCss = getCodiconStyles(context, webview);
+
+	// Dev mode: load from Vite dev server with HMR
+	// CSP allows localhost for scripts/styles and ws: for HMR
+	return /* html */`<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline' ${DEV_SERVER_URL}; font-src ${webview.cspSource}; script-src 'unsafe-inline' ${DEV_SERVER_URL}; connect-src ${DEV_SERVER_URL} ws://localhost:5173;">
+	<style>${codiconCss}</style>
+	<title>iCode (dev)</title>
+</head>
+<body>
+	<script type="module">
+		import RefreshRuntime from '${DEV_SERVER_URL}/@react-refresh';
+		RefreshRuntime.injectIntoGlobalHook(window);
+		window.$RefreshReg$ = () => {};
+		window.$RefreshSig$ = () => (type) => type;
+		window.__vite_plugin_react_preamble_installed__ = true;
+	</script>
+	<script type="module" src="${DEV_SERVER_URL}/main.tsx"></script>
+</body>
+</html>`;
+}
+
+function getProdContent(webview: vscode.Webview, context: vscode.ExtensionContext): string {
+	const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'dist', 'webview.js'));
+	const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'dist', 'webview.css'));
+	const codiconCss = getCodiconStyles(context, webview);
 
 	return /* html */`<!DOCTYPE html>
 <html lang="en">
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; font-src ${webview.cspSource}; script-src 'unsafe-inline';">
+	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; script-src ${webview.cspSource} 'unsafe-inline';">
 	<style>${codiconCss}</style>
-	<style>${styleContent}</style>
+	<link rel="stylesheet" href="${styleUri}">
 	<title>iCode</title>
 </head>
 <body>
-	<script>${scriptContent}</script>
+	<script src="${scriptUri}"></script>
 </body>
 </html>`;
+}
+
+export function getWebviewContent(webview: vscode.Webview, context: vscode.ExtensionContext, devMode = false): string {
+	return devMode
+		? getProdContent(webview, context)
+		: getProdContent(webview, context);
 }

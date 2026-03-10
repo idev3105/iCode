@@ -38,7 +38,8 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
 			localResourceRoots: [this.context.extensionUri],
 		};
 
-		webviewView.webview.html = getWebviewContent(webviewView.webview, this.context);
+		const devMode = this.context.extensionMode === vscode.ExtensionMode.Development;
+		webviewView.webview.html = getWebviewContent(webviewView.webview, this.context, devMode);
 
 		webviewView.webview.onDidReceiveMessage((msg: WebviewMessage) => {
 			switch (msg.type) {

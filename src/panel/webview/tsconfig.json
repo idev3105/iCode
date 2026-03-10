@@ -5,11 +5,15 @@
 		"moduleResolution": "bundler",
 		"strict": true,
 		"lib": ["ESNext", "DOM", "DOM.Iterable"],
+		"jsx": "react-jsx",
 		"verbatimModuleSyntax": true,
 		"isolatedModules": true,
 		"esModuleInterop": true,
-		"skipLibCheck": true
+		"skipLibCheck": true,
+		"paths": {
+			"@/*": ["./*"]
+		}
 	},
-	"include": ["**/*.ts", "**/*.svelte"],
+	"include": ["**/*.ts", "**/*.tsx"],
 	"exclude": ["node_modules"]
 }
