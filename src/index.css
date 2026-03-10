@@ -1,0 +1,73 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap");
+@import "xterm/css/xterm.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 28 7% 12%;
+    --foreground: 43 56% 81%;
+    --card: 0 0% 16%;
+    --card-foreground: 43 56% 81%;
+    --popover: 0 0% 16%;
+    --popover-foreground: 43 56% 81%;
+    --primary: 26 99% 55%;
+    --primary-foreground: 28 7% 12%;
+    --secondary: 20 10% 22%;
+    --secondary-foreground: 43 56% 81%;
+    --muted: 20 10% 22%;
+    --muted-foreground: 35 19% 59%;
+    --accent: 20 7% 30%;
+    --accent-foreground: 48 86% 88%;
+    --destructive: 2 74% 45%;
+    --destructive-foreground: 43 56% 81%;
+    --border: 20 10% 22%;
+    --input: 20 10% 22%;
+    --ring: 26 99% 55%;
+    --radius: 0.25rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body, #root {
+    @apply bg-background text-foreground;
+    height: 100vh;
+    width: 100vw;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    font-size: 13px;
+  }
+}
+
+/* ── Scrollbars ───────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border) / 0.8);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}
+
+/* ── Utility: no-scrollbar ───────────────────────────────────────────── */
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}

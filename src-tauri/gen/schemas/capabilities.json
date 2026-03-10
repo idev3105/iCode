@@ -1,0 +1,1 @@
+{"dialog-allow":{"identifier":"dialog-allow","description":"Allow dialog plugin to open directories","local":true,"windows":["main"],"permissions":["dialog:allow-open"]}}
