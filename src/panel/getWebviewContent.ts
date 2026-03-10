@@ -1,22 +1,23 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 
-export function getWebviewContent(webview: vscode.Webview, context: vscode.ExtensionContext): string {
-	const extensionUri = context.extensionUri;
-
-	const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview.js'));
-	const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview.css'));
+export function getWebviewContent(_webview: vscode.Webview, context: vscode.ExtensionContext): string {
+	const distPath = path.join(context.extensionPath, 'dist');
+	const scriptContent = fs.readFileSync(path.join(distPath, 'webview.js'), 'utf8');
+	const styleContent = fs.readFileSync(path.join(distPath, 'webview.css'), 'utf8');
 
 	return /* html */`<!DOCTYPE html>
 <html lang="en">
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource} 'unsafe-inline';">
-	<link href="${styleUri}" rel="stylesheet">
+	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+	<style>${styleContent}</style>
 	<title>iCode</title>
 </head>
 <body>
-	<script src="${scriptUri}"></script>
+	<script>${scriptContent}</script>
 </body>
 </html>`;
 }

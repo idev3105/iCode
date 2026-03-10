@@ -3,15 +3,20 @@ import { AgentManager } from './agent/AgentManager';
 import { AgentType, Task } from './agent/types';
 import { TaskPanelProvider } from './panel/TaskPanelProvider';
 import { DiffManager } from './diff/DiffManager';
+import { HookServer } from './server/HookServer';
 
 export function activate(context: vscode.ExtensionContext) {
-	const agentManager = new AgentManager();
+	const hookPort = 3500;
+	const agentManager = new AgentManager(hookPort);
+	const hookServer = new HookServer(hookPort, event => agentManager.onHookEvent(event));
 	const diffManager = new DiffManager();
 	const panelProvider = new TaskPanelProvider(context, agentManager);
 
 	// Register the sidebar Task Panel
 	context.subscriptions.push(
-		vscode.window.registerWebviewViewProvider(TaskPanelProvider.viewType, panelProvider)
+		vscode.window.registerWebviewViewProvider(TaskPanelProvider.viewType, panelProvider, {
+			webviewOptions: { retainContextWhenHidden: true },
+		})
 	);
 
 	// Command: New Task via quick input
@@ -76,7 +81,14 @@ export function activate(context: vscode.ExtensionContext) {
 		})
 	);
 
-	context.subscriptions.push(agentManager, diffManager);
+	context.subscriptions.push(
+		vscode.window.onDidChangeActiveTerminal(terminal => {
+			const taskId = terminal ? agentManager.getTaskIdByTerminal(terminal) : null;
+			panelProvider.notifyFocusedTask(taskId ?? null);
+		})
+	);
+
+	context.subscriptions.push(agentManager, hookServer, diffManager);
 }
 
 export function deactivate() {}

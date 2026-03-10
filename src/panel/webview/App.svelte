@@ -6,6 +6,7 @@
   let tasks = $state<Task[]>([]);
   let yoloMode = $state(false);
   let currentScreen = $state<'main' | 'settings'>('main');
+  let focusedTaskId = $state<string | null>(null);
 
   // VS Code API
   let vscode: any;
@@ -30,6 +31,8 @@
         yoloMode = !!msg.settings['yolo'];
       } else if (msg.type === 'navigate') {
         currentScreen = msg.screen;
+      } else if (msg.type === 'focusedTask') {
+        focusedTaskId = msg.taskId ?? null;
       }
     });
 
@@ -54,10 +57,6 @@
 </script>
 
 <div class="fixed inset-0 flex flex-col transition-all duration-200 ease-in-out {currentScreen !== 'main' ? 'translate-x-full opacity-0 pointer-events-none' : 'translate-x-0 opacity-100'}">
-  <div class="flex items-center gap-1 px-2 py-1.5 border-b border-[var(--vscode-panel-border,#333)] shrink-0">
-    <span class="flex-1 text-[11px] font-semibold uppercase tracking-wider opacity-70">iCode</span>
-  </div>
-
   <div class="text-[11px] uppercase tracking-wider opacity-60 px-2 pt-2 shrink-0">Agents</div>
   <div class="grid grid-cols-2 gap-3 p-3 shrink-0">
     <button class="bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] border-none p-3 rounded-md cursor-pointer flex items-center justify-center transition-transform duration-100 hover:bg-[var(--vscode-button-hoverBackground)] hover:-translate-y-0.5 active:translate-y-0" onclick={() => submitTask('claude')} title="Start Claude Session">
@@ -79,14 +78,16 @@
       <div class="opacity-50 text-[12px] text-center py-4">No active agents. Click a button above to start.</div>
     {:else}
       {#each tasks as task (task.id)}
-        <div class="flex items-start gap-2 p-1.5 rounded-md cursor-pointer hover:bg-[var(--vscode-list-hoverBackground)]" onclick={() => focusTerminal(task.id)}>
-          <span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold shrink-0 mt-0.5 
-            {task.status === 'queued' ? 'bg-gray-500 text-white' : ''}
-            {task.status === 'running' ? 'bg-blue-600 text-white' : ''}
-            {task.status === 'completed' ? 'bg-green-600 text-white' : ''}
-            {task.status === 'failed' ? 'bg-red-600 text-white' : ''}">
-            {task.status}
-          </span>
+        <div class="flex items-start gap-2 p-1.5 rounded-md cursor-pointer transition-colors
+          {focusedTaskId === task.id ? 'bg-[var(--vscode-list-activeSelectionBackground)] text-[var(--vscode-list-activeSelectionForeground)]' : 'hover:bg-[var(--vscode-list-hoverBackground)]'}"
+          role="button" tabindex="0"
+          onclick={() => focusTerminal(task.id)}
+          onkeydown={(e) => e.key === 'Enter' && focusTerminal(task.id)}>
+          <span class="inline-block w-2 h-2 rounded-full shrink-0 mt-1.5
+            {task.status === 'running' ? 'bg-yellow-400' : ''}
+            {task.status === 'completed' ? 'bg-green-500' : ''}
+            {task.status === 'queued' ? 'bg-gray-400' : ''}
+            {task.status === 'failed' ? 'bg-red-500' : ''}"></span>
           <div class="flex-1 min-w-0">
             <div class="text-[10px] opacity-60 uppercase tracking-tight flex items-center gap-1">
               <svg class="w-3 h-3 fill-current" viewBox="0 0 24 24">
@@ -95,6 +96,13 @@
               {task.agentType}
             </div>
             <div class="text-[12px] overflow-hidden text-ellipsis whitespace-nowrap">{new Date(task.createdAt).toLocaleTimeString()}</div>
+            {#if task.sessionId}
+              <div class="text-[10px] opacity-40 font-mono mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap" title={task.sessionId}>
+                {task.sessionId.slice(0, 8)}
+              </div>
+            {:else if task.status === 'running' && task.agentType === 'gemini'}
+              <div class="text-[10px] opacity-40 mt-0.5">waiting for session…</div>
+            {/if}
           </div>
         </div>
       {/each}

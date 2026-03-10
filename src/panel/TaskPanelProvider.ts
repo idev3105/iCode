@@ -91,6 +91,10 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
 		}
 	}
 
+	notifyFocusedTask(taskId: string | null): void {
+		this.view?.webview.postMessage({ type: 'focusedTask', taskId });
+	}
+
 	openSettings(): void {
 		if (this.view) {
 			this.view.webview.postMessage({ type: 'navigate', screen: 'settings' });

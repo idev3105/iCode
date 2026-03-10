@@ -58,7 +58,7 @@ async function main() {
 			sveltePlugin({
 				preprocess: sveltePreprocess(),
 				compilerOptions: {
-					dev: !production,
+					dev: false,
 					css: 'injected'
 				}
 			}),

@@ -9,4 +9,5 @@ export interface Task {
 	status: TaskStatus;
 	createdAt: number;
 	output: string;
+	sessionId?: string;
 }
