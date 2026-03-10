@@ -24,6 +24,7 @@ interface SessionEntry {
   createdAt: number;
   status: "working" | "waiting" | "stop";
   isActive: boolean;
+  eventCount?: number;
 }
 
 const MAX_COLLAPSED_STOPPED = 3;
@@ -65,11 +66,13 @@ function SessionItem({
   focused,
   onFocus,
   onResume,
+  onStop,
 }: {
   entry: SessionEntry;
   focused: boolean;
   onFocus: () => void;
   onResume: () => void;
+  onStop: () => void;
 }) {
   return (
     <div
@@ -97,6 +100,12 @@ function SessionItem({
         </div>
         <div className="flex items-center gap-2 text-[11px] text-[var(--muted-foreground)]">
           <span>{new Date(entry.createdAt).toLocaleTimeString()}</span>
+          {entry.eventCount !== undefined && entry.eventCount > 0 && (
+            <span className="flex items-center gap-0.5 opacity-60">
+              <i className="codicon codicon-history text-[10px]" />
+              {entry.eventCount}
+            </span>
+          )}
           {entry.sessionId ? (
             <Tooltip content={entry.sessionId}>
               <code className="text-[10px] opacity-50 font-mono">
@@ -108,6 +117,22 @@ function SessionItem({
           ) : null}
         </div>
       </div>
+
+      {entry.isActive && (
+        <Tooltip content="Stop session">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+            onClick={(e) => {
+              e.stopPropagation();
+              onStop();
+            }}
+          >
+            <i className="codicon codicon-debug-stop text-sm" />
+          </Button>
+        </Tooltip>
+      )}
 
       {entry.status === "stop" && entry.sessionId && (
         <Tooltip content="Resume session">
@@ -168,6 +193,10 @@ export default function App() {
     (taskId: string) => vscode.postMessage({ type: "resumeSession", taskId }),
     [vscode]
   );
+  const stopSession = useCallback(
+    (taskId: string) => vscode.postMessage({ type: "stopSession", taskId }),
+    [vscode]
+  );
   const onSettingChange = useCallback(
     (key: string, value: boolean) => vscode.postMessage({ type: "updateSetting", key, value }),
     [vscode]
@@ -187,6 +216,7 @@ export default function App() {
         createdAt: task.createdAt,
         status: task.status === "running" ? "working" : task.status === "queued" ? "waiting" : "stop",
         isActive: task.status === "running" || task.status === "queued",
+        eventCount: task.eventCount,
       });
     }
 
@@ -199,6 +229,7 @@ export default function App() {
           createdAt: s.createdAt,
           status: "stop",
           isActive: false,
+          eventCount: s.eventCount,
         });
       }
     }
@@ -298,6 +329,7 @@ export default function App() {
                   focused={focusedTaskId === entry.id}
                   onFocus={() => focusTerminal(entry.id)}
                   onResume={() => resumeSession(entry.id)}
+                  onStop={() => stopSession(entry.id)}
                 />
               ))}
 

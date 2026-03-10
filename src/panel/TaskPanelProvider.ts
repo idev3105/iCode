@@ -11,6 +11,7 @@ type WebviewMessage =
 	| { type: 'submitTask'; agentType: AgentType; prompt: string }
 	| { type: 'focusTerminal'; taskId: string }
 	| { type: 'resumeSession'; taskId: string }
+	| { type: 'stopSession'; taskId: string }
 	| { type: 'updateSetting'; key: SettingKey; value: boolean }
 	| { type: 'ready' };
 
@@ -67,6 +68,10 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
 
 				case 'resumeSession':
 					this.agentManager.resumeSession(msg.taskId);
+					break;
+
+				case 'stopSession':
+					this.agentManager.stopTask(msg.taskId);
 					break;
 
 				case 'updateSetting':

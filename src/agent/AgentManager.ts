@@ -48,7 +48,8 @@ export class AgentManager {
 
 	constructor(hookPort?: number) {
 		this.hookPort = hookPort;
-		this.sessionStore = new SessionStore();
+		const workDir = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+		this.sessionStore = new SessionStore(workDir);
 	}
 
 	private taskStatusToSessionStatus(status: Task['status']): SessionStatus {
@@ -60,6 +61,15 @@ export class AgentManager {
 		}
 	}
 
+	private findTaskBySessionId(sessionId: string): Task | undefined {
+		for (const task of this.tasks.values()) {
+			if (task.sessionId === sessionId) {
+				return task;
+			}
+		}
+		return undefined;
+	}
+
 	private persistSession(task: Task, statusOverride?: SessionStatus): void {
 		const session: Session = {
 			id: task.id,
@@ -68,6 +78,7 @@ export class AgentManager {
 			status: statusOverride ?? this.taskStatusToSessionStatus(task.status),
 			createdAt: task.createdAt,
 			sessionId: task.sessionId,
+			eventCount: task.eventCount ?? 0,
 		};
 		this.sessionStore.set(session);
 	}
@@ -83,6 +94,15 @@ export class AgentManager {
 			this.pendingGeminiSession = null;
 			resolve(sessionId);
 			return;
+		}
+
+		if (sessionId && eventName !== 'SessionStart' && eventName !== 'SessionEnd' && eventName !== 'Stop') {
+			const task = this.findTaskBySessionId(sessionId);
+			if (task) {
+				task.eventCount = (task.eventCount ?? 0) + 1;
+				this.persistSession(task);
+				this._onTaskUpdated.fire({ ...task });
+			}
 		}
 
 		// Focus the terminal for notable events
@@ -150,7 +170,11 @@ export class AgentManager {
 			if (closed === terminal) {
 				task.status = 'completed';
 				this.tasks.set(task.id, task);
-				this.persistSession(task); // stop
+				if ((task.eventCount ?? 0) === 0) {
+					this.sessionStore.delete(task.id);
+				} else {
+					this.persistSession(task); // stop
+				}
 				this._onTaskUpdated.fire({ ...task });
 				this.terminals.delete(task.id);
 				this.sessionTerminals.delete(sessionId);
@@ -206,7 +230,11 @@ export class AgentManager {
 			if (closed === terminal) {
 				task.status = 'completed';
 				this.tasks.set(task.id, task);
-				this.persistSession(task); // stop
+				if ((task.eventCount ?? 0) === 0) {
+					this.sessionStore.delete(task.id);
+				} else {
+					this.persistSession(task); // stop
+				}
 				this._onTaskUpdated.fire({ ...task });
 				this.terminals.delete(task.id);
 				this.sessionTerminals.delete(sessionId);
@@ -239,6 +267,13 @@ export class AgentManager {
 		return this.sessionStore.getAll().sort((a, b) => b.createdAt - a.createdAt);
 	}
 
+	stopTask(taskId: string): void {
+		const terminal = this.terminals.get(taskId);
+		if (terminal) {
+			terminal.dispose();
+		}
+	}
+
 	focusTerminal(taskId: string): void {
 		this.terminals.get(taskId)?.show();
 	}
@@ -263,6 +298,7 @@ export class AgentManager {
 			createdAt: Date.now(),
 			output: '',
 			sessionId: session.sessionId,
+			eventCount: session.eventCount,
 		};
 
 		this.tasks.set(task.id, task);
@@ -304,7 +340,11 @@ export class AgentManager {
 				if (closed === terminal) {
 					task.status = 'completed';
 					this.tasks.set(task.id, task);
-					this.persistSession(task); // stop
+					if ((task.eventCount ?? 0) === 0) {
+						this.sessionStore.delete(task.id);
+					} else {
+						this.persistSession(task); // stop
+					}
 					this._onTaskUpdated.fire({ ...task });
 					this.terminals.delete(task.id);
 					if (session.sessionId) {
@@ -356,7 +396,11 @@ export class AgentManager {
 				if (closed === terminal) {
 					task.status = 'completed';
 					this.tasks.set(task.id, task);
-					this.persistSession(task); // stop
+					if ((task.eventCount ?? 0) === 0) {
+						this.sessionStore.delete(task.id);
+					} else {
+						this.persistSession(task); // stop
+					}
 					this._onTaskUpdated.fire({ ...task });
 					this.terminals.delete(task.id);
 					if (session.sessionId) {

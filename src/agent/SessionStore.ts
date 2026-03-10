@@ -8,8 +8,10 @@ const SESSIONS_FILE = path.join(SESSIONS_DIR, 'sessions.json');
 
 export class SessionStore {
 	private sessions: Map<string, Session> = new Map();
+	private workDir: string | undefined;
 
-	constructor() {
+	constructor(workDir?: string) {
+		this.workDir = workDir;
 		this.load();
 	}
 
@@ -38,7 +40,12 @@ export class SessionStore {
 	}
 
 	set(session: Session): void {
-		this.sessions.set(session.id, { ...session });
+		this.sessions.set(session.id, { ...session, workDir: session.workDir ?? this.workDir });
+		this.save();
+	}
+
+	delete(id: string): void {
+		this.sessions.delete(id);
 		this.save();
 	}
 
@@ -46,7 +53,12 @@ export class SessionStore {
 		return this.sessions.get(id);
 	}
 
+	/** Returns all sessions filtered to the current workspace directory. */
 	getAll(): Session[] {
-		return Array.from(this.sessions.values());
+		const all = Array.from(this.sessions.values());
+		if (!this.workDir) {
+			return all;
+		}
+		return all.filter(s => s.workDir === this.workDir);
 	}
 }

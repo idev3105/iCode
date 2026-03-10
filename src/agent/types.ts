@@ -10,6 +10,7 @@ export interface Task {
 	createdAt: number;
 	output: string;
 	sessionId?: string;
+	eventCount?: number;
 }
 
 export type SessionStatus = 'waiting' | 'init' | 'working' | 'stop';
@@ -21,4 +22,6 @@ export interface Session {
 	status: SessionStatus;
 	createdAt: number;
 	sessionId?: string;
+	workDir?: string;
+	eventCount?: number;
 }
