@@ -1,0 +1,74 @@
+# VS Code Extension Conversion Plan for iCode
+
+This document outlines the current features of the iCode app (Tauri/Rust/React) and maps them to the architecture of a VS Code Extension, followed by a step-by-step implementation plan.
+
+## 1. Current Features of iCode
+
+Based on the source code review, the current iCode desktop app provides the following core functionalities:
+
+### Core Orchestration & Execution
+- **Agent Orchestrator:** Manages the task queue and dispatches tasks to different AI agents (`claude`, `gemini`, `goose`) or the system `shell`.
+- **Process Management (PTY):** Spawns real pseudo-terminal processes for the agents to run in, capturing their input/output streams.
+- **Event Bus:** Uses a pub/sub system to broadcast events (like `TaskQueued`, `AgentOutput`) across the application.
+
+### User Interface (React/TypeScript)
+- **Task Panel:** A sidebar/panel to create tasks, select which agent to use, and see task status.
+- **Center Terminal:** Uses `xterm.js` to display the live stdout/stderr of the running agent.
+- **Code Editor / File Explorer:** Uses `CodeMirror` and custom React components to browse and edit workspace files.
+- **Diff Viewer:** Integrates `react-diff-view` / `diff2html` to review code changes suggested by agents before applying them.
+
+### State Management
+- Utilizes `zustand` and `immer` to manage global state: `agentStore`, `taskStore`, `terminalStore`, `diffStore`, and `workspaceStore`.
+
+---
+
+## 2. VS Code Extension Architecture Mapping
+
+By migrating to a VS Code Extension, we eliminate the need for the Rust backend and most of the custom React UI components. We will leverage VS Code's native, highly-optimized APIs.
+
+| iCode Feature | VS Code Extension API | Benefits |
+| :--- | :--- | :--- |
+| **Process Manager (PTY)** | `node-pty` library running in the Node.js Extension Host | Runs natively in Node.js. No need to compile Rust binaries or handle Rust-to-JS IPC overhead. |
+| **Center Terminal (xterm.js)** | `vscode.window.createTerminal` (using `ExtensionTerminalOptions` / Pseudoterminal API) | Native VS Code terminal. Inherits user's themes, fonts, and keybindings. Seamless integration. |
+| **Code Editor & File Explorer** | Native VS Code Editor (`vscode.window.showTextDocument`) & Explorer | Zero effort required. Full IntelliSense, formatting, and VS Code ecosystem support out of the box. |
+| **Diff Viewer** | Built-in Diff Editor (`vscode.commands.executeCommand('vscode.diff')`) | Exact same diff experience as Git in VS Code. High performance, native look and feel. |
+| **Task Panel (UI)** | Webview Panel (`vscode.window.createWebviewPanel`) or Tree View (`vscode.window.createTreeView`) | We can keep our React UI for the Task Panel by embedding it in a Webview, or use native Tree Views for a lighter approach. |
+| **Event Bus / State** | `vscode.EventEmitter` + Node.js standard patterns | Simpler, synchronous-by-default event handling within a single Node.js process. |
+
+---
+
+## 3. Implementation Plan
+
+We will build the extension incrementally, prioritizing the core ability to run an agent in a terminal.
+
+### Phase 1: Project Initialization & Basic Commands
+- [ ] Bootstrap the VS Code Extension project using `yo code` (TypeScript), selecting `pnpm` as the package manager if prompted.
+- [ ] Configure [.tool-versions](file:///home/khanhtdc/Documents/projects/iCode/.tool-versions) for `asdf` to manage Node.js and `pnpm` versions.
+- [ ] Configure [package.json](file:///home/khanhtdc/Documents/projects/iCode/package.json) with basic commands (e.g., `icode.startAgent`).
+- [ ] Set up the build system (esbuild or tsc).
+
+### Phase 2: Core Agent Execution (The "Backend")
+- [ ] Install `node-pty` to handle terminal spawning.
+- [ ] Implement `AgentManager` to spawn agents (like `claude-code` or `gemini-cli`) as background Node.js child processes.
+- [ ] Implement a `Pseudoterminal` wrapper to pipe the `node-pty` output directly into a native VS Code Terminal tab.
+
+### Phase 3: The Task Panel (UI)
+- [ ] Create a `WebviewViewProvider` to render our React-based Task Panel in the VS Code Sidebar.
+- [ ] Migrate the existing React Task Panel code (using Vite to build the webview bundle).
+- [ ] Establish two-way communication (`acquireVsCodeApi().postMessage` <-> `webview.onDidReceiveMessage`) between the Webview (UI) and the Extension Host (Agent Manager).
+
+### Phase 4: Diff & File Management
+- [ ] Set up listeners for when an agent proposes file changes.
+- [ ] Save proposed changes to a temporary directory/workspace state.
+- [ ] Implement a command to open the native VS Code Diff Viewer (`vscode.diff`) comparing the original file and the proposed changes.
+- [ ] Add CodeLens or Editor actions to "Accept" or "Reject" the AI's changes, updating the real file upon acceptance.
+
+## 4. Verification Plan
+
+- **Manual Testing:**
+  - Build the extension (`pnpm run compile`) and press `F5` to open the Extension Development Host.
+  - Verify the iCode sidebar appears.
+  - Submit a task to the `shell` agent (e.g., `echo "hello"`) and verify a VS Code Terminal opens and displays the output.
+  - Submit a task to an AI agent that modifies a file, and verify that the VS Code Diff editor opens correctly to review the change.
+- **Automated Testing:**
+  - Write standard VS Code extension integration tests (using `@vscode/test-electron`) for the AgentManager logic to ensure processes spawn and exit correctly without leaking memory.
