@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { AgentManager } from '../agent/AgentManager';
-import { AgentType, Task, Session } from '../agent/types';
+import { AgentType, Task } from '../agent/types';
+import { KanbanManager } from '../kanban/KanbanManager';
+import { KanbanColumn, Priority } from '../kanban/types';
 import { getWebviewContent } from './getWebviewContent';
 
 const SETTING_KEYS = ['yolo'] as const;
@@ -13,7 +15,12 @@ type WebviewMessage =
 	| { type: 'resumeSession'; taskId: string }
 	| { type: 'stopSession'; taskId: string }
 	| { type: 'updateSetting'; key: SettingKey; value: boolean }
-	| { type: 'ready' };
+	| { type: 'ready' }
+	| { type: 'kanban:getTasks' }
+	| { type: 'kanban:createTask'; title: string; description?: string; column: KanbanColumn; priority: Priority; labels?: string[] }
+	| { type: 'kanban:moveTask'; id: string; column: KanbanColumn; order: number }
+	| { type: 'kanban:updateTask'; id: string; title?: string; description?: string; priority?: Priority; labels?: string[] }
+	| { type: 'kanban:deleteTask'; id: string };
 
 export class TaskPanelProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = 'icode.taskPanel';
@@ -22,9 +29,11 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
 
 	constructor(
 		private readonly context: vscode.ExtensionContext,
-		private readonly agentManager: AgentManager
+		private readonly agentManager: AgentManager,
+		private readonly kanbanManager: KanbanManager
 	) {
 		agentManager.onTaskUpdated(() => this.refresh());
+		kanbanManager.onChanged(() => this.refreshKanban());
 	}
 
 	resolveWebviewView(
@@ -42,7 +51,7 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
 		const devMode = this.context.extensionMode === vscode.ExtensionMode.Development;
 		webviewView.webview.html = getWebviewContent(webviewView.webview, this.context, devMode);
 
-		webviewView.webview.onDidReceiveMessage((msg: WebviewMessage) => {
+		webviewView.webview.onDidReceiveMessage(async (msg: WebviewMessage) => {
 			switch (msg.type) {
 				case 'ready':
 					this.refresh();
@@ -79,6 +88,37 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
 						.getConfiguration('icode')
 						.update(msg.key, msg.value, vscode.ConfigurationTarget.Global);
 					break;
+
+				case 'kanban:getTasks':
+					await this.refreshKanban();
+					break;
+
+				case 'kanban:createTask':
+					await this.kanbanManager.createTask({
+						title: msg.title,
+						description: msg.description,
+						column: msg.column,
+						priority: msg.priority,
+						labels: msg.labels,
+					});
+					break;
+
+				case 'kanban:moveTask':
+					await this.kanbanManager.moveTask(msg.id, msg.column, msg.order);
+					break;
+
+				case 'kanban:updateTask':
+					await this.kanbanManager.updateTask(msg.id, {
+						title: msg.title,
+						description: msg.description,
+						priority: msg.priority,
+						labels: msg.labels,
+					});
+					break;
+
+				case 'kanban:deleteTask':
+					await this.kanbanManager.deleteTask(msg.id);
+					break;
 			}
 		});
 	}
@@ -101,6 +141,12 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
 				sessions: this.agentManager.getSessions(),
 			});
 		}
+	}
+
+	async refreshKanban(): Promise<void> {
+		if (!this.view) { return; }
+		const tasks = await this.kanbanManager.getTasks();
+		this.view.webview.postMessage({ type: 'kanban:tasksLoaded', tasks });
 	}
 
 	notifyFocusedTask(taskId: string | null): void {

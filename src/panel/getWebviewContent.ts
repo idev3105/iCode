@@ -6,9 +6,9 @@ const DEV_SERVER_URL = 'http://localhost:5173';
 
 function getCodiconStyles(context: vscode.ExtensionContext, webview: vscode.Webview): string {
 	const codiconFontUri = webview.asWebviewUri(
-		vscode.Uri.joinPath(context.extensionUri, 'node_modules', '@vscode/codicons', 'dist', 'codicon.ttf')
+		vscode.Uri.joinPath(context.extensionUri, 'dist', 'codicon.ttf')
 	);
-	const codiconCssPath = path.join(context.extensionPath, 'node_modules', '@vscode/codicons', 'dist', 'codicon.css');
+	const codiconCssPath = path.join(context.extensionPath, 'dist', 'codicon.css');
 	return fs.readFileSync(codiconCssPath, 'utf8')
 		.replace(/url\([^)]+\)/g, `url('${codiconFontUri}')`);
 }
@@ -52,7 +52,10 @@ function getProdContent(webview: vscode.Webview, context: vscode.ExtensionContex
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; script-src ${webview.cspSource} 'unsafe-inline';">
-	<style>${codiconCss}</style>
+	<style>
+		body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); font-weight: var(--vscode-font-weight); }
+		${codiconCss}
+	</style>
 	<link rel="stylesheet" href="${styleUri}">
 	<title>iCode</title>
 </head>

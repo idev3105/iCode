@@ -11,7 +11,8 @@
 		"esModuleInterop": true,
 		"skipLibCheck": true,
 		"paths": {
-			"@/*": ["./*"]
+			"@/*": ["./*"],
+			"@kanban/*": ["../../kanban/*"]
 		}
 	},
 	"include": ["**/*.ts", "**/*.tsx"],

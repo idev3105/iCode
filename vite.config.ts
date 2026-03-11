@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
   root: path.resolve(__dirname, "src/panel/webview"),
   server: {
@@ -24,12 +24,13 @@ export default defineConfig({
       },
     },
     cssCodeSplit: false,
-    sourcemap: process.env.NODE_ENV !== "production",
-    minify: process.env.NODE_ENV === "production",
+    sourcemap: mode !== "production" ? "inline" : false,
+    minify: mode === "production",
   },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src/panel/webview"),
+      "@kanban": path.resolve(__dirname, "src/kanban"),
     },
   },
-});
+}));

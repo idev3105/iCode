@@ -4,11 +4,14 @@ import * as vscode from 'vscode';
 export class HookServer implements vscode.Disposable {
   private server: http.Server;
   private output: vscode.OutputChannel;
-  readonly port: number;
+  private _port: number = 0;
   private onEvent: ((event: Record<string, unknown>) => void) | undefined;
+  /** Resolves with the actual port once the server is listening. */
+  readonly ready: Promise<number>;
 
-  constructor(port = 3500, onEvent?: (event: Record<string, unknown>) => void) {
-    this.port = port;
+  get port(): number { return this._port; }
+
+  constructor(onEvent?: (event: Record<string, unknown>) => void) {
     this.onEvent = onEvent;
     this.output = vscode.window.createOutputChannel('iCode Hooks');
     this.server = http.createServer((req, res) => {
@@ -29,7 +32,19 @@ export class HookServer implements vscode.Disposable {
         res.writeHead(405).end();
       }
     });
-    this.server.listen(port);
+
+    this.ready = new Promise<number>((resolve, reject) => {
+      this.server.once('listening', () => {
+        const addr = this.server.address();
+        this._port = typeof addr === 'object' && addr ? addr.port : 0;
+        this.output.appendLine(`iCode Hook Server listening on port ${this._port}`);
+        resolve(this._port);
+      });
+
+      this.server.once('error', reject);
+
+      this.server.listen(0);
+    });
   }
 
   dispose(): void {

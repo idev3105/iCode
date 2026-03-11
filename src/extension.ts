@@ -4,13 +4,25 @@ import { AgentType, Task } from './agent/types';
 import { TaskPanelProvider } from './panel/TaskPanelProvider';
 import { DiffManager } from './diff/DiffManager';
 import { HookServer } from './server/HookServer';
+import { KanbanManager } from './kanban/KanbanManager';
+import { ensureHooks } from './server/HookInstaller';
+import { ensureGeminiHooks } from './server/GeminiHookInstaller';
 
 export function activate(context: vscode.ExtensionContext) {
-	const hookPort = 3500;
-	const agentManager = new AgentManager(hookPort);
-	const hookServer = new HookServer(hookPort, event => agentManager.onHookEvent(event));
+	const agentManager = new AgentManager();
+	const hookServer = new HookServer(event => agentManager.onHookEvent(event));
+
+	// Once the server is up, propagate the actual port and install hooks in both .claude and .gemini
+	hookServer.ready.then(port => {
+		agentManager.setHookPort(port);
+		void ensureHooks(port);
+		void ensureGeminiHooks(port);
+	}).catch(err => {
+		vscode.window.showErrorMessage(`iCode: Hook server failed to start: ${(err as Error).message}`);
+	});
 	const diffManager = new DiffManager();
-	const panelProvider = new TaskPanelProvider(context, agentManager);
+	const kanbanManager = new KanbanManager();
+	const panelProvider = new TaskPanelProvider(context, agentManager, kanbanManager);
 
 	// Register the sidebar Task Panel
 	context.subscriptions.push(
@@ -19,29 +31,23 @@ export function activate(context: vscode.ExtensionContext) {
 		})
 	);
 
-	// Command: New Task via quick input
+	// Command: New Session via quick pick (agent selection only)
 	context.subscriptions.push(
-		vscode.commands.registerCommand('icode.newTask', async () => {
+		vscode.commands.registerCommand('icode.newSession', async () => {
 			const agentItems: { label: string; agentType: AgentType }[] = [
 				{ label: '$(hubot) Claude', agentType: 'claude' },
 				{ label: '$(hubot) Gemini', agentType: 'gemini' },
 			];
 
 			const picked = await vscode.window.showQuickPick(agentItems, {
-				placeHolder: 'Select an agent',
+				placeHolder: 'Select an agent to start a session',
 			});
 			if (!picked) { return; }
-
-			const prompt = await vscode.window.showInputBox({
-				placeHolder: 'Enter a prompt or shell command...',
-				prompt: `Task for ${picked.agentType}`,
-			});
-			if (!prompt) { return; }
 
 			const task: Task = {
 				id: Math.random().toString(36).slice(2, 10),
 				agentType: picked.agentType,
-				prompt,
+				prompt: '',
 				status: 'queued',
 				createdAt: Date.now(),
 				output: '',
@@ -88,7 +94,7 @@ export function activate(context: vscode.ExtensionContext) {
 		})
 	);
 
-	context.subscriptions.push(agentManager, hookServer, diffManager);
+	context.subscriptions.push(agentManager, hookServer, diffManager, kanbanManager);
 }
 
 export function deactivate() {}

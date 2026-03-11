@@ -4,6 +4,12 @@
   "description": "Autonomous AI coding IDE orchestrated by LLMs",
   "publisher": "icode-dev",
   "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/idev3105/iCode"
+  },
+  "license": "MIT",
+  "icon": "launcher.png",
   "engines": {
     "vscode": "^1.110.0"
   },
@@ -20,7 +26,7 @@
         {
           "id": "icode-sidebar",
           "title": "iCode",
-          "icon": "$(hubot)"
+          "icon": "images/icon-activity-bar.svg"
         }
       ]
     },
@@ -44,8 +50,8 @@
     },
     "commands": [
       {
-        "command": "icode.newTask",
-        "title": "iCode: New Task",
+        "command": "icode.newSession",
+        "title": "iCode: New Session",
         "icon": "$(add)"
       },
       {
@@ -64,7 +70,7 @@
     ],
     "keybindings": [
       {
-        "command": "icode.newTask",
+        "command": "icode.newSession",
         "key": "ctrl+shift+i",
         "mac": "cmd+shift+i"
       }
@@ -97,8 +103,8 @@
     "dev:extension": "vite build --config vite.config.extension.ts --watch",
     "dev:webview": "vite dev",
     "watch": "npm-run-all -p watch:*",
-    "watch:extension": "vite build --config vite.config.extension.ts --watch",
-    "watch:webview": "vite build --watch",
+    "watch:extension": "vite build --config vite.config.extension.ts --watch --mode development",
+    "watch:webview": "vite build --watch --mode development",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
     "package": "pnpm run check-types && pnpm run lint && vite build --config vite.config.extension.ts --mode production && vite build --mode production",
     "compile-tests": "tsc -p . --outDir out",
@@ -107,7 +113,8 @@
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
     "test": "vscode-test",
-    "vsix": "vsce package --no-dependencies"
+    "clean": "rm -rf dist",
+    "vsix": "pnpm run clean && pnpm run package && vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",

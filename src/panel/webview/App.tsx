@@ -1,11 +1,14 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import type { Task, AgentType, Session } from "../../agent/types";
+import type { KanbanTask, KanbanColumn, Priority } from "@kanban/types";
 import { cn } from "./lib/utils";
 import { Button } from "./components/ui/button";
 import { Switch } from "./components/ui/switch";
 import { Separator } from "./components/ui/separator";
 import { Badge } from "./components/ui/badge";
 import { Tooltip } from "./components/ui/tooltip";
+import { KanbanBoard } from "./components/kanban/KanbanBoard";
+import { KanbanDetail } from "./components/kanban/KanbanDetail";
 
 // Simple Icons SVG paths
 const CLAUDE_PATH =
@@ -153,11 +156,18 @@ function SessionItem({
   );
 }
 
+
+type MainTab = "agents" | "kanban";
+
 export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [kanbanTasks, setKanbanTasks] = useState<KanbanTask[]>([]);
   const [yoloMode, setYoloMode] = useState(false);
   const [currentScreen, setCurrentScreen] = useState<"main" | "settings">("main");
+  const [activeTab, setActiveTab] = useState<MainTab>("agents");
+  const [kanbanLoaded, setKanbanLoaded] = useState(false);
+  const [selectedKanbanId, setSelectedKanbanId] = useState<string | null>(null);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
   const [showAllSessions, setShowAllSessions] = useState(false);
   const [vscode] = useState(() => acquireVsCodeApi());
@@ -174,6 +184,8 @@ export default function App() {
         setCurrentScreen(msg.screen);
       } else if (msg.type === "focusedTask") {
         setFocusedTaskId(msg.taskId ?? null);
+      } else if (msg.type === "kanban:tasksLoaded") {
+        setKanbanTasks(msg.tasks);
       }
     };
     window.addEventListener("message", handler);
@@ -199,6 +211,26 @@ export default function App() {
   );
   const onSettingChange = useCallback(
     (key: string, value: boolean) => vscode.postMessage({ type: "updateSetting", key, value }),
+    [vscode]
+  );
+
+  const kanbanCreateTask = useCallback(
+    (title: string, description: string, priority: Priority, column: KanbanColumn) =>
+      vscode.postMessage({ type: "kanban:createTask", title, description: description || undefined, column, priority }),
+    [vscode]
+  );
+  const kanbanMoveTask = useCallback(
+    (id: string, column: KanbanColumn, order: number) =>
+      vscode.postMessage({ type: "kanban:moveTask", id, column, order }),
+    [vscode]
+  );
+  const kanbanUpdateTask = useCallback(
+    (id: string, changes: Partial<Pick<KanbanTask, "title" | "description" | "priority" | "labels">>) =>
+      vscode.postMessage({ type: "kanban:updateTask", id, ...changes }),
+    [vscode]
+  );
+  const kanbanDeleteTask = useCallback(
+    (id: string) => vscode.postMessage({ type: "kanban:deleteTask", id }),
     [vscode]
   );
 
@@ -269,94 +301,183 @@ export default function App() {
             : "translate-x-0 opacity-100"
         )}
       >
-        {/* Agent Launch */}
-        <div className="px-3 pt-3 pb-2 space-y-2 shrink-0">
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--muted-foreground)]">
-            New Session
-          </span>
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              onClick={() => submitTask("claude")}
-              className="h-10 gap-2 transition-transform hover:-translate-y-px active:translate-y-0"
-              title="Start Claude Session"
-            >
-              <AgentIcon type="claude" className="w-4 h-4" />
-              <span className="text-xs font-medium">Claude</span>
-            </Button>
-            <Button
-              onClick={() => submitTask("gemini")}
-              className="h-10 gap-2 transition-transform hover:-translate-y-px active:translate-y-0"
-              title="Start Gemini Session"
-            >
-              <AgentIcon type="gemini" className="w-4 h-4" />
-              <span className="text-xs font-medium">Gemini</span>
-            </Button>
+        {/* Tab Bar */}
+        <div className="flex shrink-0 border-b border-[var(--border)]">
+          <button
+            className={cn(
+              "flex-1 flex items-center justify-center gap-1.5 py-2 text-[11px] font-medium transition-colors border-b-2",
+              activeTab === "agents"
+                ? "border-[var(--primary)] text-[var(--foreground)]"
+                : "border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+            )}
+            onClick={() => setActiveTab("agents")}
+          >
+            <i className="codicon codicon-terminal text-[12px]" />
+            Agents
+          </button>
+          <button
+            className={cn(
+              "flex-1 flex items-center justify-center gap-1.5 py-2 text-[11px] font-medium transition-colors border-b-2",
+              activeTab === "kanban"
+                ? "border-[var(--primary)] text-[var(--foreground)]"
+                : "border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+            )}
+            onClick={() => {
+                setActiveTab("kanban");
+                if (!kanbanLoaded) {
+                  setKanbanLoaded(true);
+                  vscode.postMessage({ type: "kanban:getTasks" });
+                }
+              }}
+          >
+            <i className="codicon codicon-project text-[12px]" />
+            Tasks
+            {kanbanTasks.filter((t) => t.column === "in-progress").length > 0 && (
+              <span className="text-[9px] bg-yellow-500/20 text-yellow-500 rounded px-1 tabular-nums">
+                {kanbanTasks.filter((t) => t.column === "in-progress").length}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* ── Agents Tab ── */}
+        <div
+          className={cn(
+            "flex flex-col flex-1 min-h-0 transition-all duration-200",
+            activeTab !== "agents" && "hidden"
+          )}
+        >
+          {/* Agent Launch */}
+          <div className="px-3 pt-3 pb-2 space-y-2 shrink-0">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--muted-foreground)]">
+              New Session
+            </span>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                onClick={() => submitTask("claude")}
+                className="h-10 gap-2 transition-transform hover:-translate-y-px active:translate-y-0"
+                title="Start Claude Session"
+              >
+                <AgentIcon type="claude" className="w-4 h-4" />
+                <span className="text-xs font-medium">Claude</span>
+              </Button>
+              <Button
+                onClick={() => submitTask("gemini")}
+                className="h-10 gap-2 transition-transform hover:-translate-y-px active:translate-y-0"
+                title="Start Gemini Session"
+              >
+                <AgentIcon type="gemini" className="w-4 h-4" />
+                <span className="text-xs font-medium">Gemini</span>
+              </Button>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Sessions List */}
+          <div className="px-3 pt-2 pb-1 shrink-0 flex items-center justify-between">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--muted-foreground)]">
+              Sessions
+            </span>
+            {allSessions.length > 0 && (
+              <span className="text-[10px] tabular-nums text-[var(--muted-foreground)]">
+                {allSessions.filter((s) => s.status !== "stop").length} active
+              </span>
+            )}
+          </div>
+
+          <div className="overflow-y-auto flex-1 px-1 pt-1 pb-2 space-y-0.5">
+            {visibleSessions.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-8 px-4 text-center space-y-2">
+                <div className="w-8 h-8 rounded-full bg-[var(--muted)] flex items-center justify-center">
+                  <i className="codicon codicon-terminal text-[var(--muted-foreground)] text-base" />
+                </div>
+                <p className="text-[12px] text-[var(--muted-foreground)]">
+                  No sessions yet.
+                  <br />
+                  Start one above.
+                </p>
+              </div>
+            ) : (
+              <>
+                {visibleSessions.map((entry) => (
+                  <SessionItem
+                    key={entry.id}
+                    entry={entry}
+                    focused={focusedTaskId === entry.id}
+                    onFocus={() => focusTerminal(entry.id)}
+                    onResume={() => resumeSession(entry.id)}
+                    onStop={() => stopSession(entry.id)}
+                  />
+                ))}
+
+                {hiddenCount > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full text-[11px] text-[var(--muted-foreground)] mt-1"
+                    onClick={() => setShowAllSessions(true)}
+                  >
+                    Show {hiddenCount} more
+                    <i className="codicon codicon-chevron-down text-xs ml-1" />
+                  </Button>
+                )}
+                {showAllSessions && stoppedSessions.length > MAX_COLLAPSED_STOPPED && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full text-[11px] text-[var(--muted-foreground)] mt-1"
+                    onClick={() => setShowAllSessions(false)}
+                  >
+                    Show less
+                    <i className="codicon codicon-chevron-up text-xs ml-1" />
+                  </Button>
+                )}
+              </>
+            )}
           </div>
         </div>
 
-        <Separator />
-
-        {/* Sessions List */}
-        <div className="px-3 pt-2 pb-1 shrink-0 flex items-center justify-between">
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--muted-foreground)]">
-            Sessions
-          </span>
-          {allSessions.length > 0 && (
-            <span className="text-[10px] tabular-nums text-[var(--muted-foreground)]">
-              {allSessions.filter((s) => s.status !== "stop").length} active
-            </span>
+        {/* ── Kanban Tab ── */}
+        <div
+          className={cn(
+            "flex flex-col flex-1 min-h-0 transition-all duration-200",
+            activeTab !== "kanban" && "hidden"
           )}
-        </div>
-
-        <div className="overflow-y-auto flex-1 px-1 pt-1 pb-2 space-y-0.5">
-          {visibleSessions.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 px-4 text-center space-y-2">
-              <div className="w-8 h-8 rounded-full bg-[var(--muted)] flex items-center justify-center">
-                <i className="codicon codicon-terminal text-[var(--muted-foreground)] text-base" />
+        >
+          {!kanbanLoaded ? (
+              <div className="flex flex-col items-center justify-center py-10 px-4 text-center space-y-2">
+                <div className="w-8 h-8 rounded-full bg-[var(--muted)] flex items-center justify-center">
+                  <i className="codicon codicon-project text-[var(--muted-foreground)] text-base" />
+                </div>
+                <p className="text-[12px] text-[var(--muted-foreground)]">
+                  Select this tab to load tasks.
+                </p>
               </div>
-              <p className="text-[12px] text-[var(--muted-foreground)]">
-                No sessions yet.
-                <br />
-                Start one above.
-              </p>
-            </div>
-          ) : (
-            <>
-              {visibleSessions.map((entry) => (
-                <SessionItem
-                  key={entry.id}
-                  entry={entry}
-                  focused={focusedTaskId === entry.id}
-                  onFocus={() => focusTerminal(entry.id)}
-                  onResume={() => resumeSession(entry.id)}
-                  onStop={() => stopSession(entry.id)}
+            ) : (
+              <div className="overflow-y-auto flex-1 py-1">
+                {kanbanTasks.length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-10 px-4 text-center space-y-2">
+                    <div className="w-8 h-8 rounded-full bg-[var(--muted)] flex items-center justify-center">
+                      <i className="codicon codicon-project text-[var(--muted-foreground)] text-base" />
+                    </div>
+                    <p className="text-[12px] text-[var(--muted-foreground)]">
+                      No tasks yet.
+                      <br />
+                      Click <strong>+</strong> next to a column to add one.
+                    </p>
+                  </div>
+                )}
+                <KanbanBoard
+                  tasks={kanbanTasks}
+                  onCreateTask={kanbanCreateTask}
+                  onMoveTask={kanbanMoveTask}
+                  onUpdateTask={kanbanUpdateTask}
+                  onDeleteTask={kanbanDeleteTask}
+                  onOpenTask={(id) => setSelectedKanbanId(id)}
                 />
-              ))}
-
-              {hiddenCount > 0 && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full text-[11px] text-[var(--muted-foreground)] mt-1"
-                  onClick={() => setShowAllSessions(true)}
-                >
-                  Show {hiddenCount} more
-                  <i className="codicon codicon-chevron-down text-xs ml-1" />
-                </Button>
-              )}
-              {showAllSessions && stoppedSessions.length > MAX_COLLAPSED_STOPPED && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full text-[11px] text-[var(--muted-foreground)] mt-1"
-                  onClick={() => setShowAllSessions(false)}
-                >
-                  Show less
-                  <i className="codicon codicon-chevron-up text-xs ml-1" />
-                </Button>
-              )}
-            </>
-          )}
+              </div>
+            )}
         </div>
       </div>
 
@@ -401,6 +522,26 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {/* ── Kanban Detail Screen ── */}
+      {(() => {
+        const selectedTask = kanbanTasks.find((t) => t.id === selectedKanbanId) ?? null;
+        if (!selectedTask) { return null; }
+        return (
+          <KanbanDetail
+            key={selectedTask.id}
+            task={selectedTask}
+            visible={true}
+            onBack={() => setSelectedKanbanId(null)}
+            onUpdate={(changes) => kanbanUpdateTask(selectedTask.id, changes)}
+            onMove={(col) => {
+              const colTasks = kanbanTasks.filter((t) => t.column === col);
+              kanbanMoveTask(selectedTask.id, col, colTasks.length);
+            }}
+            onDelete={() => kanbanDeleteTask(selectedTask.id)}
+          />
+        );
+      })()}
     </>
   );
 }

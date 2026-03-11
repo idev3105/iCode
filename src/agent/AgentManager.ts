@@ -35,21 +35,68 @@ export class AgentManager {
 	private tasks: Map<string, Task> = new Map();
 	private terminals: Map<string, vscode.Terminal> = new Map();
 	private sessionTerminals: Map<string, vscode.Terminal> = new Map();
+	// Maps terminal → taskId for fast lookup in the close handler
+	private terminalTaskIds: Map<vscode.Terminal, string> = new Map();
 	private hookPort: number | undefined;
 	private sessionStore: SessionStore;
 
 	// Queue ensures only one Gemini agent initializes at a time (waits for SessionStart)
 	private geminiInitQueue: Promise<void> = Promise.resolve();
-	// Resolves with the session_id once SessionStart hook fires
+	// Resolves/rejects the SessionStart wait in initGeminiTask
 	private pendingGeminiSession: ((sessionId: string) => void) | null = null;
+	private pendingGeminiSessionReject: ((err: Error) => void) | null = null;
+	private pendingGeminiTerminal: vscode.Terminal | null = null;
 
 	private readonly _onTaskUpdated = new vscode.EventEmitter<Task>();
 	readonly onTaskUpdated = this._onTaskUpdated.event;
+	private readonly _terminalCloseListener: vscode.Disposable;
 
 	constructor(hookPort?: number) {
 		this.hookPort = hookPort;
 		const workDir = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 		this.sessionStore = new SessionStore(workDir);
+
+		// Single centralized handler — covers all terminals regardless of how they were created
+		this._terminalCloseListener = vscode.window.onDidCloseTerminal(terminal => {
+			this.handleTerminalClose(terminal);
+		});
+	}
+
+	private handleTerminalClose(terminal: vscode.Terminal): void {
+		// If this terminal was still waiting for SessionStart, unblock the queue immediately
+		if (terminal === this.pendingGeminiTerminal) {
+			this.pendingGeminiTerminal = null;
+			const reject = this.pendingGeminiSessionReject;
+			this.pendingGeminiSession = null;
+			this.pendingGeminiSessionReject = null;
+			reject?.(new Error('Terminal closed before Gemini session started'));
+		}
+
+		const taskId = this.terminalTaskIds.get(terminal);
+		if (!taskId) { return; }
+
+		const task = this.tasks.get(taskId);
+		if (task) {
+			task.status = 'completed';
+			this.tasks.set(taskId, task);
+			if ((task.eventCount ?? 0) === 0) {
+				this.sessionStore.delete(taskId);
+				this.tasks.delete(taskId);
+			} else {
+				this.persistSession(task); // stop
+			}
+			this._onTaskUpdated.fire({ ...task });
+		}
+
+		this.terminals.delete(taskId);
+		for (const [sessionId, t] of this.sessionTerminals) {
+			if (t === terminal) { this.sessionTerminals.delete(sessionId); break; }
+		}
+		this.terminalTaskIds.delete(terminal);
+	}
+
+	setHookPort(port: number): void {
+		this.hookPort = port;
 	}
 
 	private taskStatusToSessionStatus(status: Task['status']): SessionStatus {
@@ -92,6 +139,8 @@ export class AgentManager {
 		if (eventName === 'SessionStart' && this.pendingGeminiSession && sessionId) {
 			const resolve = this.pendingGeminiSession;
 			this.pendingGeminiSession = null;
+			this.pendingGeminiSessionReject = null;
+			this.pendingGeminiTerminal = null;
 			resolve(sessionId);
 			return;
 		}
@@ -157,6 +206,7 @@ export class AgentManager {
 
 		this.terminals.set(task.id, terminal);
 		this.sessionTerminals.set(sessionId, terminal);
+		this.terminalTaskIds.set(terminal, task.id);
 		terminal.show();
 
 		if (task.prompt) {
@@ -165,22 +215,6 @@ export class AgentManager {
 
 		this.persistSession(task); // working
 		this._onTaskUpdated.fire({ ...task });
-
-		const disposable = vscode.window.onDidCloseTerminal(closed => {
-			if (closed === terminal) {
-				task.status = 'completed';
-				this.tasks.set(task.id, task);
-				if ((task.eventCount ?? 0) === 0) {
-					this.sessionStore.delete(task.id);
-				} else {
-					this.persistSession(task); // stop
-				}
-				this._onTaskUpdated.fire({ ...task });
-				this.terminals.delete(task.id);
-				this.sessionTerminals.delete(sessionId);
-				disposable.dispose();
-			}
-		});
 	}
 
 	/** Starts a Gemini task and waits for SessionStart before resolving (unblocking the queue). */
@@ -206,6 +240,8 @@ export class AgentManager {
 		});
 
 		this.terminals.set(task.id, terminal);
+		this.terminalTaskIds.set(terminal, task.id);
+		this.pendingGeminiTerminal = terminal;
 		terminal.show();
 
 		if (task.prompt) {
@@ -213,34 +249,28 @@ export class AgentManager {
 		}
 
 		// Wait for Gemini to fire SessionStart hook to learn the session_id
-		const sessionId = await Promise.race([
-			new Promise<string>(resolve => { this.pendingGeminiSession = resolve; }),
-			new Promise<string>((_, reject) =>
-				setTimeout(() => reject(new Error('SessionStart timeout')), GEMINI_SESSION_START_TIMEOUT_MS)
-			),
-		]);
+		let sessionId: string;
+		try {
+			sessionId = await Promise.race([
+				new Promise<string>((resolve, reject) => {
+					this.pendingGeminiSession = resolve;
+					this.pendingGeminiSessionReject = reject;
+				}),
+				new Promise<string>((_, reject) =>
+					setTimeout(() => reject(new Error('SessionStart timeout')), GEMINI_SESSION_START_TIMEOUT_MS)
+				),
+			]);
+		} finally {
+			this.pendingGeminiTerminal = null;
+			this.pendingGeminiSession = null;
+			this.pendingGeminiSessionReject = null;
+		}
 
 		task.sessionId = sessionId;
 		this.tasks.set(task.id, task);
 		this.sessionTerminals.set(sessionId, terminal);
 		this.persistSession(task); // working
 		this._onTaskUpdated.fire({ ...task });
-
-		const disposable = vscode.window.onDidCloseTerminal(closed => {
-			if (closed === terminal) {
-				task.status = 'completed';
-				this.tasks.set(task.id, task);
-				if ((task.eventCount ?? 0) === 0) {
-					this.sessionStore.delete(task.id);
-				} else {
-					this.persistSession(task); // stop
-				}
-				this._onTaskUpdated.fire({ ...task });
-				this.terminals.delete(task.id);
-				this.sessionTerminals.delete(sessionId);
-				disposable.dispose();
-			}
-		});
 	}
 
 	queueTask(task: Task): void {
@@ -328,6 +358,7 @@ export class AgentManager {
 			});
 
 			this.terminals.set(task.id, terminal);
+			this.terminalTaskIds.set(terminal, task.id);
 			if (session.sessionId) {
 				this.sessionTerminals.set(session.sessionId, terminal);
 			}
@@ -335,24 +366,6 @@ export class AgentManager {
 
 			this.persistSession(task); // working
 			this._onTaskUpdated.fire({ ...task });
-
-			const disposable = vscode.window.onDidCloseTerminal(closed => {
-				if (closed === terminal) {
-					task.status = 'completed';
-					this.tasks.set(task.id, task);
-					if ((task.eventCount ?? 0) === 0) {
-						this.sessionStore.delete(task.id);
-					} else {
-						this.persistSession(task); // stop
-					}
-					this._onTaskUpdated.fire({ ...task });
-					this.terminals.delete(task.id);
-					if (session.sessionId) {
-						this.sessionTerminals.delete(session.sessionId);
-					}
-					disposable.dispose();
-				}
-			});
 		} else {
 			// Gemini: find session index from --list-sessions output
 			if (this.hookPort !== undefined) {
@@ -384,6 +397,7 @@ export class AgentManager {
 			});
 
 			this.terminals.set(task.id, terminal);
+			this.terminalTaskIds.set(terminal, task.id);
 			if (session.sessionId) {
 				this.sessionTerminals.set(session.sessionId, terminal);
 			}
@@ -391,24 +405,6 @@ export class AgentManager {
 
 			this.persistSession(task); // working
 			this._onTaskUpdated.fire({ ...task });
-
-			const disposable = vscode.window.onDidCloseTerminal(closed => {
-				if (closed === terminal) {
-					task.status = 'completed';
-					this.tasks.set(task.id, task);
-					if ((task.eventCount ?? 0) === 0) {
-						this.sessionStore.delete(task.id);
-					} else {
-						this.persistSession(task); // stop
-					}
-					this._onTaskUpdated.fire({ ...task });
-					this.terminals.delete(task.id);
-					if (session.sessionId) {
-						this.sessionTerminals.delete(session.sessionId);
-					}
-					disposable.dispose();
-				}
-			});
 		}
 	}
 
@@ -434,6 +430,7 @@ export class AgentManager {
 	}
 
 	dispose(): void {
+		this._terminalCloseListener.dispose();
 		this._onTaskUpdated.dispose();
 		this.terminals.forEach(t => t.dispose());
 	}

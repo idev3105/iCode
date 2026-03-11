@@ -13,7 +13,7 @@ function Tooltip({ content, children, className }: TooltipProps) {
   const [style, setStyle] = useState<React.CSSProperties>({});
   const triggerRef = useRef<HTMLSpanElement>(null);
   const tooltipRef = useRef<HTMLSpanElement>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const show = useCallback(() => {
     timeoutRef.current = setTimeout(() => {
