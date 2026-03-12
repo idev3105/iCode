@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import type { Task, AgentType, Session } from "../../agent/types";
 import type { KanbanTask, KanbanColumn, Priority } from "@kanban/types";
 import { cn } from "./lib/utils";
@@ -62,6 +62,68 @@ function StatusLabel({ status }: { status: SessionEntry["status"] }) {
   if (status === "working") return <Badge variant="success">Active</Badge>;
   if (status === "waiting") return <Badge variant="warning">Queued</Badge>;
   return <Badge variant="muted">Stopped</Badge>;
+}
+
+function AgentSplitButton({
+  type,
+  onStart,
+  onStartWithPrompt,
+}: {
+  type: AgentType;
+  onStart: () => void;
+  onStartWithPrompt: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <div className="flex">
+        <Button
+          onClick={onStart}
+          className="h-10 gap-2 flex-1 rounded-r-none transition-transform hover:-translate-y-px active:translate-y-0"
+          title={`Start ${type} Session`}
+        >
+          <AgentIcon type={type} className="w-4 h-4" />
+          <span className="text-xs font-medium capitalize">{type}</span>
+        </Button>
+        <Button
+          onClick={() => setOpen((v) => !v)}
+          className="h-10 px-1.5 rounded-l-none border-l border-l-[var(--primary-foreground)]/20"
+          title="More options"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3 5L6 8L9 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </Button>
+      </div>
+      {open && (
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--popover)] text-[var(--popover-foreground)] shadow-md overflow-hidden">
+          <button
+            className="w-full px-3 py-2 text-xs text-left hover:bg-[var(--accent)] hover:text-[var(--accent-foreground)] transition-colors"
+            onClick={() => { setOpen(false); onStart(); }}
+          >
+            Start Session
+          </button>
+          <button
+            className="w-full px-3 py-2 text-xs text-left hover:bg-[var(--accent)] hover:text-[var(--accent-foreground)] transition-colors"
+            onClick={() => { setOpen(false); onStartWithPrompt(); }}
+          >
+            Start with Prompt
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function SessionItem({
@@ -197,6 +259,10 @@ export default function App() {
     (agentType: AgentType) => vscode.postMessage({ type: "submitTask", agentType, prompt: "" }),
     [vscode]
   );
+  const submitTaskWithPrompt = useCallback(
+    (agentType: AgentType) => vscode.postMessage({ type: "submitTaskWithPrompt", agentType }),
+    [vscode]
+  );
   const focusTerminal = useCallback(
     (taskId: string) => vscode.postMessage({ type: "focusTerminal", taskId }),
     [vscode]
@@ -231,6 +297,10 @@ export default function App() {
   );
   const kanbanDeleteTask = useCallback(
     (id: string) => vscode.postMessage({ type: "kanban:deleteTask", id }),
+    [vscode]
+  );
+  const kanbanResolveTask = useCallback(
+    (id: string) => vscode.postMessage({ type: "kanban:resolveTask", id }),
     [vscode]
   );
 
@@ -353,22 +423,8 @@ export default function App() {
               New Session
             </span>
             <div className="grid grid-cols-2 gap-2">
-              <Button
-                onClick={() => submitTask("claude")}
-                className="h-10 gap-2 transition-transform hover:-translate-y-px active:translate-y-0"
-                title="Start Claude Session"
-              >
-                <AgentIcon type="claude" className="w-4 h-4" />
-                <span className="text-xs font-medium">Claude</span>
-              </Button>
-              <Button
-                onClick={() => submitTask("gemini")}
-                className="h-10 gap-2 transition-transform hover:-translate-y-px active:translate-y-0"
-                title="Start Gemini Session"
-              >
-                <AgentIcon type="gemini" className="w-4 h-4" />
-                <span className="text-xs font-medium">Gemini</span>
-              </Button>
+              <AgentSplitButton type="claude" onStart={() => submitTask("claude")} onStartWithPrompt={() => submitTaskWithPrompt("claude")} />
+              <AgentSplitButton type="gemini" onStart={() => submitTask("gemini")} onStartWithPrompt={() => submitTaskWithPrompt("gemini")} />
             </div>
           </div>
 
@@ -474,6 +530,7 @@ export default function App() {
                   onMoveTask={kanbanMoveTask}
                   onUpdateTask={kanbanUpdateTask}
                   onDeleteTask={kanbanDeleteTask}
+                  onResolveTask={kanbanResolveTask}
                   onOpenTask={(id) => setSelectedKanbanId(id)}
                 />
               </div>

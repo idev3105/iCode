@@ -3,22 +3,25 @@ import * as path from 'path';
 import * as os from 'os';
 import { Session } from './types';
 
-const SESSIONS_DIR = path.join(os.homedir(), '.iCode');
-const SESSIONS_FILE = path.join(SESSIONS_DIR, 'sessions.json');
-
 export class SessionStore {
 	private sessions: Map<string, Session> = new Map();
-	private workDir: string | undefined;
+	private sessionsDir: string;
+	private sessionsFile: string;
 
 	constructor(workDir?: string) {
-		this.workDir = workDir;
+		if (workDir) {
+			this.sessionsDir = path.join(workDir, '.iCode');
+		} else {
+			this.sessionsDir = path.join(os.homedir(), '.iCode');
+		}
+		this.sessionsFile = path.join(this.sessionsDir, 'sessions.json');
 		this.load();
 	}
 
 	private load(): void {
 		try {
-			if (fs.existsSync(SESSIONS_FILE)) {
-				const data = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8'));
+			if (fs.existsSync(this.sessionsFile)) {
+				const data = JSON.parse(fs.readFileSync(this.sessionsFile, 'utf-8'));
 				if (Array.isArray(data)) {
 					for (const s of data) {
 						this.sessions.set(s.id, s);
@@ -32,15 +35,15 @@ export class SessionStore {
 	}
 
 	private save(): void {
-		if (!fs.existsSync(SESSIONS_DIR)) {
-			fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+		if (!fs.existsSync(this.sessionsDir)) {
+			fs.mkdirSync(this.sessionsDir, { recursive: true });
 		}
 		const data = Array.from(this.sessions.values());
-		fs.writeFileSync(SESSIONS_FILE, JSON.stringify(data, null, 2), 'utf-8');
+		fs.writeFileSync(this.sessionsFile, JSON.stringify(data, null, 2), 'utf-8');
 	}
 
 	set(session: Session): void {
-		this.sessions.set(session.id, { ...session, workDir: session.workDir ?? this.workDir });
+		this.sessions.set(session.id, session);
 		this.save();
 	}
 
@@ -53,12 +56,7 @@ export class SessionStore {
 		return this.sessions.get(id);
 	}
 
-	/** Returns all sessions filtered to the current workspace directory. */
 	getAll(): Session[] {
-		const all = Array.from(this.sessions.values());
-		if (!this.workDir) {
-			return all;
-		}
-		return all.filter(s => s.workDir === this.workDir);
+		return Array.from(this.sessions.values());
 	}
 }

@@ -104,6 +104,7 @@ interface KanbanSectionProps {
   onUpdateTask: (id: string, changes: Partial<Pick<KanbanTask, "title" | "description" | "priority" | "labels">>) => void;
   onDeleteTask: (id: string) => void;
   onMoveTask: (id: string, column: KanbanColumn) => void;
+  onResolveTask?: (id: string) => void;
 }
 
 export function KanbanSection({
@@ -126,6 +127,7 @@ export function KanbanSection({
   onUpdateTask,
   onDeleteTask,
   onMoveTask,
+  onResolveTask,
 }: KanbanSectionProps) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -270,6 +272,7 @@ export function KanbanSection({
                   onOpen={() => onOpenTask(task.id)}
                   onDelete={() => onDeleteTask(task.id)}
                   onMove={(col) => onMoveTask(task.id, col)}
+                  onResolve={onResolveTask ? () => onResolveTask(task.id) : undefined}
                 />
               </div>
             ))}

@@ -40,6 +40,7 @@ interface KanbanBoardProps {
   onUpdateTask: (id: string, changes: Partial<Pick<KanbanTask, "title" | "description" | "priority" | "labels">>) => void;
   onDeleteTask: (id: string) => void;
   onOpenTask: (id: string) => void;
+  onResolveTask?: (id: string) => void;
 }
 
 export function KanbanBoard({
@@ -49,6 +50,7 @@ export function KanbanBoard({
   onUpdateTask,
   onDeleteTask,
   onOpenTask,
+  onResolveTask,
 }: KanbanBoardProps) {
   const [drag, setDrag] = useState<DragState>(EMPTY_DRAG);
 
@@ -146,6 +148,7 @@ export function KanbanBoard({
             const colTasks = tasks.filter((t) => t.column === targetCol);
             onMoveTask(id, targetCol, colTasks.length);
           }}
+          onResolveTask={onResolveTask}
         />
       ))}
     </div>

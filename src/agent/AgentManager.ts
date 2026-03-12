@@ -194,6 +194,9 @@ export class AgentManager {
 		const sessionId = uuidv7();
 		task.sessionId = sessionId;
 		shellArgs.push('--session-id', sessionId);
+		if (task.prompt) {
+			shellArgs.push(task.prompt);
+		}
 		this.tasks.set(task.id, task);
 
 		const terminal = vscode.window.createTerminal({
@@ -208,10 +211,6 @@ export class AgentManager {
 		this.sessionTerminals.set(sessionId, terminal);
 		this.terminalTaskIds.set(terminal, task.id);
 		terminal.show();
-
-		if (task.prompt) {
-			terminal.sendText(task.prompt);
-		}
 
 		this.persistSession(task); // working
 		this._onTaskUpdated.fire({ ...task });
@@ -231,6 +230,10 @@ export class AgentManager {
 		const { shellPath, shellArgs } = getAgentShell('gemini');
 		const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
+		if (task.prompt) {
+			shellArgs.push(task.prompt);
+		}
+
 		const terminal = vscode.window.createTerminal({
 			name: `iCode [gemini]`,
 			shellPath,
@@ -243,10 +246,6 @@ export class AgentManager {
 		this.terminalTaskIds.set(terminal, task.id);
 		this.pendingGeminiTerminal = terminal;
 		terminal.show();
-
-		if (task.prompt) {
-			terminal.sendText(task.prompt);
-		}
 
 		// Wait for Gemini to fire SessionStart hook to learn the session_id
 		let sessionId: string;

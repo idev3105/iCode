@@ -22,6 +22,5 @@ export interface Session {
 	status: SessionStatus;
 	createdAt: number;
 	sessionId?: string;
-	workDir?: string;
 	eventCount?: number;
 }

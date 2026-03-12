@@ -11,6 +11,7 @@ type SettingKey = typeof SETTING_KEYS[number];
 
 type WebviewMessage =
 	| { type: 'submitTask'; agentType: AgentType; prompt: string }
+	| { type: 'submitTaskWithPrompt'; agentType: AgentType }
 	| { type: 'focusTerminal'; taskId: string }
 	| { type: 'resumeSession'; taskId: string }
 	| { type: 'stopSession'; taskId: string }
@@ -20,7 +21,8 @@ type WebviewMessage =
 	| { type: 'kanban:createTask'; title: string; description?: string; column: KanbanColumn; priority: Priority; labels?: string[] }
 	| { type: 'kanban:moveTask'; id: string; column: KanbanColumn; order: number }
 	| { type: 'kanban:updateTask'; id: string; title?: string; description?: string; priority?: Priority; labels?: string[] }
-	| { type: 'kanban:deleteTask'; id: string };
+	| { type: 'kanban:deleteTask'; id: string }
+	| { type: 'kanban:resolveTask'; id: string };
 
 export class TaskPanelProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = 'icode.taskPanel';
@@ -68,6 +70,25 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
 						output: '',
 					};
 					this.agentManager.queueTask(task);
+					break;
+				}
+
+				case 'submitTaskWithPrompt': {
+					const prompt = await vscode.window.showInputBox({
+						prompt: `Enter a prompt for ${msg.agentType}`,
+						placeHolder: 'Type your prompt here...',
+					});
+					if (prompt) {
+						const task: Task = {
+							id: Math.random().toString(36).slice(2, 10),
+							agentType: msg.agentType,
+							prompt,
+							status: 'queued',
+							createdAt: Date.now(),
+							output: '',
+						};
+						this.agentManager.queueTask(task);
+					}
 					break;
 				}
 
@@ -119,6 +140,39 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
 				case 'kanban:deleteTask':
 					await this.kanbanManager.deleteTask(msg.id);
 					break;
+
+				case 'kanban:resolveTask': {
+					const allKanbanTasks = await this.kanbanManager.getTasks();
+					const kanbanTask = allKanbanTasks.find(t => t.id === msg.id);
+					if (!kanbanTask) { break; }
+
+					const agent = await vscode.window.showQuickPick(
+						[
+							{ label: 'Claude', agentType: 'claude' as AgentType },
+							{ label: 'Gemini', agentType: 'gemini' as AgentType },
+						],
+						{ placeHolder: 'Select an agent to resolve this task' }
+					);
+					if (!agent) { break; }
+
+					const prompt = kanbanTask.description
+						? `${kanbanTask.title}\n\n${kanbanTask.description}`
+						: kanbanTask.title;
+
+					const task: Task = {
+						id: Math.random().toString(36).slice(2, 10),
+						agentType: agent.agentType,
+						prompt,
+						status: 'queued',
+						createdAt: Date.now(),
+						output: '',
+					};
+					this.agentManager.queueTask(task);
+
+					const inProgressTasks = allKanbanTasks.filter(t => t.column === 'in-progress');
+					await this.kanbanManager.moveTask(msg.id, 'in-progress', inProgressTasks.length);
+					break;
+				}
 			}
 		});
 	}

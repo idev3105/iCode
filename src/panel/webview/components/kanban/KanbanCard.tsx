@@ -27,6 +27,7 @@ interface KanbanCardProps {
   onOpen: () => void;
   onDelete: () => void;
   onMove: (column: KanbanColumn) => void;
+  onResolve?: () => void;
 }
 
 export function KanbanCard({
@@ -42,6 +43,7 @@ export function KanbanCard({
   onOpen,
   onDelete,
   onMove,
+  onResolve,
 }: KanbanCardProps) {
   const [showMoveMenu, setShowMoveMenu] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -123,6 +125,17 @@ export function KanbanCard({
 
         {/* Actions */}
         <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+          {onResolve && task.column === "todo" && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
+              title="Start resolving with AI agent"
+              onClick={(e) => { e.stopPropagation(); onResolve(); }}
+            >
+              <i className="codicon codicon-play text-[10px]" />
+            </Button>
+          )}
           <div className="relative">
             <Button
               variant="ghost"
